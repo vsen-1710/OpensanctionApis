@@ -67,6 +67,33 @@ class EntityService:
         
         return results
     
+    def process_entity_by_id(self, entity_id: str) -> Dict:
+        """Process a single entity by OpenSanctions entity ID"""
+        logger.info(f"Processing entity by ID: {entity_id}")
+        
+        try:
+            # Step 1: Call OpenSanctions API with entity ID
+            opensanctions_result = self.opensanctions_service.search_entity(entity_id)
+            
+            # Step 2: Use OpenSanctions data to enhance web search
+            web_search_result = self.search_service.intelligent_search(entity_id, opensanctions_result)
+            
+            # Step 3: Create comprehensive result
+            comprehensive_result = self._create_comprehensive_result(
+                entity_id, opensanctions_result, web_search_result
+            )
+            
+            return comprehensive_result
+            
+        except Exception as e:
+            logger.error(f"Error processing entity ID {entity_id}: {e}")
+            return {
+                'entity_id': entity_id,
+                'error': f'Processing error: {str(e)}',
+                'timestamp': int(time.time()),
+                'processing_status': 'failed'
+            }
+    
     def _create_comprehensive_result(self, entity_name: str, opensanctions_result: Dict, web_search_result: Dict) -> Dict:
         """Create comprehensive result including both OpenSanctions and web search data"""
         
@@ -74,6 +101,7 @@ class EntityService:
         opensanctions_found = False
         opensanctions_data = None
         opensanctions_total = 0
+        opensanctions_error = None
         
         if opensanctions_result.get('success') and opensanctions_result.get('data'):
             results = opensanctions_result['data'].get('results', [])
@@ -81,6 +109,8 @@ class EntityService:
             if results and opensanctions_total > 0:
                 opensanctions_found = True
                 opensanctions_data = opensanctions_result['data']
+        elif not opensanctions_result.get('success'):
+            opensanctions_error = opensanctions_result.get('error', 'Unknown OpenSanctions API error')
         
         # Process web search results
         web_search_found = False
@@ -102,12 +132,12 @@ class EntityService:
         # Create comprehensive response
         return {
             'found': opensanctions_found or web_search_found,
-            'message': self._generate_result_message(entity_name, opensanctions_found, web_search_found, opensanctions_total, web_search_total),
+            'message': self._generate_result_message(entity_name, opensanctions_found, web_search_found, opensanctions_total, web_search_total, opensanctions_error),
             'opensanctions': {
                 'found': opensanctions_found,
                 'total_results': opensanctions_total,
                 'data': opensanctions_data,
-                'error': opensanctions_result.get('error') if not opensanctions_result.get('success') else None
+                'error': opensanctions_error
             },
             'web_search': {
                 'found': web_search_found,
@@ -119,9 +149,14 @@ class EntityService:
             'processing_status': 'completed'
         }
     
-    def _generate_result_message(self, entity_name: str, opensanctions_found: bool, web_search_found: bool, os_total: int, ws_total: int) -> str:
+    def _generate_result_message(self, entity_name: str, opensanctions_found: bool, web_search_found: bool, os_total: int, ws_total: int, opensanctions_error: str = None) -> str:
         """Generate appropriate result message based on findings"""
-        if opensanctions_found and web_search_found:
+        if opensanctions_error:
+            if web_search_found:
+                return f'{entity_name} - OpenSanctions API error: {opensanctions_error}. Found {ws_total} relevant web search results.'
+            else:
+                return f'{entity_name} - OpenSanctions API error: {opensanctions_error}. No relevant web search results found.'
+        elif opensanctions_found and web_search_found:
             return f'{entity_name} found in OpenSanctions database ({os_total} records) and web search ({ws_total} results)'
         elif opensanctions_found:
             return f'{entity_name} found in OpenSanctions database ({os_total} records) but no relevant web search results'

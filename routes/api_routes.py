@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from services.entity_service import EntityService
 
 logger = logging.getLogger(__name__)
@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 # Create Blueprint
 api_bp = Blueprint('api', __name__)
 
-# Initialize entity service
+# Initialize services
 entity_service = EntityService()
 
 @api_bp.route('/check', methods=['POST'])
@@ -63,6 +63,31 @@ def check_entities():
             'api_version': '2.0.0'
         }), 500
 
+@api_bp.route('/check/<entity_id>', methods=['GET'])
+def check_entity_by_id(entity_id: str):
+    """Check entity by OpenSanctions entity ID"""
+    try:
+        if not entity_id or not entity_id.strip():
+            return jsonify({'error': 'Entity ID is required'}), 400
+        
+        # Process entity by ID
+        result = entity_service.process_entity_by_id(entity_id.strip())
+        
+        return jsonify({
+            'success': True,
+            'entity_id': entity_id,
+            'result': result,
+            'api_version': '2.0.0'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in /check/{entity_id} endpoint: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error',
+            'api_version': '2.0.0'
+        }), 500
+
 @api_bp.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -91,40 +116,6 @@ def health_check():
         logger.error(f"Error in health check: {e}")
         return jsonify({
             'status': 'unhealthy',
-            'error': str(e),
-            'api_version': '2.0.0'
-        }), 500
-
-@api_bp.route('/clear-cache', methods=['POST'])
-def clear_cache():
-    """Clear cached data (admin endpoint)"""
-    try:
-        # Add basic auth header check for production
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({
-                'success': False,
-                'error': 'Authorization required'
-            }), 401
-        
-        success = entity_service.clear_cache()
-        
-        if success:
-            return jsonify({
-                'success': True,
-                'message': 'Cache cleared successfully',
-                'api_version': '2.0.0'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Failed to clear cache'
-            }), 500
-            
-    except Exception as e:
-        logger.error(f"Error clearing cache: {e}")
-        return jsonify({
-            'success': False,
             'error': str(e),
             'api_version': '2.0.0'
         }), 500
@@ -204,7 +195,7 @@ def _parse_entities(data: Dict) -> List[str]:
                 
                 if isinstance(entity_obj, dict):
                     for field in ['name', 'entity', 'company', 'organization']:
-                        if field in entity_obj:
+                        if entity_obj[field]:
                             entity_name = entity_obj[field].strip()
                             break
                 elif isinstance(entity_obj, str):

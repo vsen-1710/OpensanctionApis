@@ -106,6 +106,15 @@ class OpenSanctionsService:
                                         'total_results': 0
                                     }
                                 
+                                if response.status_code == 429:
+                                    logger.error("OpenSanctions API rate limit exceeded")
+                                    return {
+                                        'success': False,
+                                        'error': 'OpenSanctions API rate limit exceeded for this month. Please try again later or upgrade your subscription.',
+                                        'data': None,
+                                        'total_results': 0
+                                    }
+                                
                                 response.raise_for_status()
                                 data = response.json()
                                 
@@ -152,6 +161,15 @@ class OpenSanctionsService:
                                 return {
                                     'success': False,
                                     'error': 'OpenSanctions API access forbidden - check your subscription',
+                                    'data': None,
+                                    'total_results': 0
+                                }
+                            
+                            if response.status_code == 429:
+                                logger.error("OpenSanctions API rate limit exceeded")
+                                return {
+                                    'success': False,
+                                    'error': 'OpenSanctions API rate limit exceeded for this month. Please try again later or upgrade your subscription.',
                                     'data': None,
                                     'total_results': 0
                                 }
@@ -311,6 +329,15 @@ class OpenSanctionsService:
                 return {
                     'success': False,
                     'error': 'OpenSanctions API access forbidden - check your subscription',
+                    'data': None,
+                    'total_results': 0
+                }
+            
+            if response.status_code == 429:
+                logger.error("OpenSanctions API rate limit exceeded")
+                return {
+                    'success': False,
+                    'error': 'OpenSanctions API rate limit exceeded for this month. Please try again later or upgrade your subscription.',
                     'data': None,
                     'total_results': 0
                 }
