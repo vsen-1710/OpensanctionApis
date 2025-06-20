@@ -60,7 +60,16 @@ class OpenSanctionsService:
                         queries.extend([
                             f'wikidataId:{entity_name}',
                             f'id:{entity_name}',
-                            f'referents:{entity_name}'
+                            f'referents:{entity_name}',
+                            f'identifiers:{entity_name}',
+                            f'properties.id:{entity_name}',
+                            f'properties.wikidataId:{entity_name}',
+                            f'properties.referents:{entity_name}',
+                            f'properties.identifiers:{entity_name}',
+                            f'properties.datasets.id:{entity_name}',
+                            f'properties.datasets.wikidataId:{entity_name}',
+                            f'properties.datasets.referents:{entity_name}',
+                            f'properties.datasets.identifiers:{entity_name}'
                         ])
                     
                     for query in queries:
@@ -276,7 +285,15 @@ class OpenSanctionsService:
         other_id_patterns = [
             r'^[A-Z]{2,}\d+$',  # Letters followed by digits (e.g., OFAC-12345)
             r'^\d+$',  # Pure numeric IDs
-            r'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'  # UUID format
+            r'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$',  # UUID format
+            r'^[a-f0-9]{40}$',  # SHA-1 hash format (40 characters)
+            r'^[a-f0-9]{32}$',  # MD5 hash format (32 characters)
+            r'^[a-f0-9]{64}$',  # SHA-256 hash format (64 characters)
+            r'^[a-z]+-[a-f0-9]{40}$',  # Prefix-hash format (e.g., zafic-e392bce1897e8f51ceeb9cf5f54eac318ac6b735)
+            r'^[a-z]+-[a-f0-9]{32}$',  # Prefix-MD5 format
+            r'^[a-z]+-[a-f0-9]{64}$',  # Prefix-SHA256 format
+            r'^[A-Za-z]+-\d+$',  # Prefix-numeric format (e.g., OFAC-12345)
+            r'^[A-Za-z]+-[A-Za-z0-9]+$',  # General prefix-alphanumeric format
         ]
         
         if wikidata_pattern:

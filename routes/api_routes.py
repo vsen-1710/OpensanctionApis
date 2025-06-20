@@ -23,6 +23,51 @@ def check_entities():
         if not data:
             return jsonify({'error': 'Request body cannot be empty'}), 400
         
+        # Check if this is a direct entity ID check
+        if 'id' in data and isinstance(data['id'], str):
+            # Direct entity ID check
+            entity_id = data['id'].strip()
+            if not entity_id:
+                return jsonify({'error': 'Entity ID cannot be empty'}), 400
+            
+            result = entity_service.process_entity_by_id(entity_id)
+            return jsonify({
+                'success': True,
+                'entity_id': entity_id,
+                'result': result,
+                'api_version': '2.0.0'
+            })
+        
+        # Check if this is a list of entity records
+        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict) and 'id' in data[0]:
+            # List of entity records
+            entity_ids = []
+            for record in data:
+                if isinstance(record, dict) and 'id' in record:
+                    entity_ids.append(record['id'])
+            
+            if not entity_ids:
+                return jsonify({'error': 'No valid entity IDs found in request'}), 400
+            
+            if len(entity_ids) > 50:  # Limit to prevent abuse
+                return jsonify({'error': 'Maximum 50 entities allowed per request'}), 400
+            
+            # Process entity IDs
+            results = []
+            for entity_id in entity_ids:
+                result = entity_service.process_entity_by_id(entity_id)
+                results.append({
+                    'entity_id': entity_id,
+                    'result': result
+                })
+            
+            return jsonify({
+                'success': True,
+                'total_entities': len(entity_ids),
+                'results': results,
+                'api_version': '2.0.0'
+            })
+        
         # Parse entities from different input formats
         entities = _parse_entities(data)
         
@@ -117,6 +162,97 @@ def health_check():
         return jsonify({
             'status': 'unhealthy',
             'error': str(e),
+            'api_version': '2.0.0'
+        }), 500
+
+@api_bp.route('/check/entity-id', methods=['POST'])
+def check_entity_by_id_json():
+    """Check entity by ID from JSON input"""
+    try:
+        # Validate request
+        if not request.is_json:
+            return jsonify({'error': 'Request must be JSON'}), 400
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body cannot be empty'}), 400
+        
+        # Handle single entity ID
+        if 'id' in data and isinstance(data['id'], str):
+            entity_id = data['id'].strip()
+            if not entity_id:
+                return jsonify({'error': 'Entity ID cannot be empty'}), 400
+            
+            result = entity_service.process_entity_by_id(entity_id)
+            return jsonify({
+                'success': True,
+                'entity_id': entity_id,
+                'result': result,
+                'api_version': '2.0.0'
+            })
+        
+        # Handle list of entity IDs
+        if 'ids' in data and isinstance(data['ids'], list):
+            entity_ids = [str(id).strip() for id in data['ids'] if str(id).strip()]
+            
+            if not entity_ids:
+                return jsonify({'error': 'No valid entity IDs found in request'}), 400
+            
+            if len(entity_ids) > 50:  # Limit to prevent abuse
+                return jsonify({'error': 'Maximum 50 entities allowed per request'}), 400
+            
+            # Process entity IDs
+            results = []
+            for entity_id in entity_ids:
+                result = entity_service.process_entity_by_id(entity_id)
+                results.append({
+                    'entity_id': entity_id,
+                    'result': result
+                })
+            
+            return jsonify({
+                'success': True,
+                'total_entities': len(entity_ids),
+                'results': results,
+                'api_version': '2.0.0'
+            })
+        
+        # Handle list of entity records (like your JSON format)
+        if isinstance(data, list) and len(data) > 0:
+            entity_ids = []
+            for record in data:
+                if isinstance(record, dict) and 'id' in record:
+                    entity_ids.append(record['id'])
+            
+            if not entity_ids:
+                return jsonify({'error': 'No valid entity IDs found in request'}), 400
+            
+            if len(entity_ids) > 50:  # Limit to prevent abuse
+                return jsonify({'error': 'Maximum 50 entities allowed per request'}), 400
+            
+            # Process entity IDs
+            results = []
+            for entity_id in entity_ids:
+                result = entity_service.process_entity_by_id(entity_id)
+                results.append({
+                    'entity_id': entity_id,
+                    'result': result
+                })
+            
+            return jsonify({
+                'success': True,
+                'total_entities': len(entity_ids),
+                'results': results,
+                'api_version': '2.0.0'
+            })
+        
+        return jsonify({'error': 'Invalid request format. Expected "id", "ids", or list of entity records'}), 400
+        
+    except Exception as e:
+        logger.error(f"Error in /check/entity-id endpoint: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error',
             'api_version': '2.0.0'
         }), 500
 
