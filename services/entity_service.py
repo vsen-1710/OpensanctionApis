@@ -138,6 +138,7 @@ class EntityService:
                     datasets = result.get('datasets', [])
                     source_name = datasets[0] if datasets else 'OpenSanctions'
                     
+                    # Add OpenSanctions result
                     combined_results.append({
                         'source': 'OpenSanctions',
                         'type': 'sanctions_record',
@@ -151,25 +152,44 @@ class EntityService:
                         'relevance': 'high'
                     })
                     
+                    # Add related web search results for this OpenSanctions entity
+                    if web_search_result.get('success'):
+                        ranked_results = web_search_result.get('ranked_results', [])
+                        if ranked_results:
+                            # Add top 2 web search results related to this entity
+                            for web_result in ranked_results[:2]:
+                                combined_results.append({
+                                    'source': 'Web Search',
+                                    'type': 'web_reference',
+                                    'name': web_result.get('title', ''),
+                                    'birth_date': 'Not available',
+                                    'gender': 'Not available', 
+                                    'country': 'Not available',
+                                    'description': web_result.get('snippet', ''),
+                                    'source_link': web_result.get('link', ''),
+                                    'source_name': web_result.get('domain', ''),
+                                    'relevance': 'high' if web_result.get('relevance_score', 0) > 0.8 else 'medium'
+                                })
+                    
         elif not opensanctions_result.get('success'):
             opensanctions_error = opensanctions_result.get('error', 'Unknown OpenSanctions API error')
         
-        # Process web search results
-        web_search_found = False
-        
-        if web_search_result.get('success'):
+        # If no OpenSanctions results but web search has results, add them separately
+        if not opensanctions_found and web_search_result.get('success'):
             ranked_results = web_search_result.get('ranked_results', [])
             web_search_total = web_search_result.get('total_results', 0)
             if ranked_results and web_search_total > 0:
-                web_search_found = True
                 sources_found.append(f"Web search ({web_search_total} results)")
                 
-                # Add web search results to combined list
-                for result in ranked_results[:3]:  # Limit to top 3 results
+                # Add web search results
+                for result in ranked_results[:5]:  # Limit to top 5 when no OpenSanctions data
                     combined_results.append({
                         'source': 'Web Search',
                         'type': 'web_reference',
-                        'title': result.get('title', ''),
+                        'name': result.get('title', ''),
+                        'birth_date': 'Not available',
+                        'gender': 'Not available',
+                        'country': 'Not available', 
                         'description': result.get('snippet', ''),
                         'source_link': result.get('link', ''),
                         'source_name': result.get('domain', ''),
@@ -178,24 +198,12 @@ class EntityService:
         
         total_found = len(combined_results)
         
-        # Generate suggestions
-        suggestions = []
-        if opensanctions_found:
-            suggestions.append("Entity found in sanctions database - Enhanced due diligence recommended")
-        if web_search_found and any('wanted' in r.get('description', '').lower() for r in combined_results):
-            suggestions.append("Potential law enforcement interest detected - Verify through official channels")
-        if not opensanctions_found and not web_search_found:
-            suggestions.append("No records found - Consider searching with name variations")
-        if total_found > 0:
-            suggestions.append("Review all sources for comprehensive risk assessment")
-        
         # Create simplified response
         return {
-            'found': opensanctions_found or web_search_found,
+            'found': opensanctions_found or len(combined_results) > 0,
             'summary': self._generate_simple_message(entity_name, sources_found, opensanctions_error),
             'total_results': total_found,
             'results': combined_results,
-            'recommendations': suggestions[:3],  # Limit to top 3 suggestions
             'timestamp': int(time.time()),
             'status': 'completed'
         }
