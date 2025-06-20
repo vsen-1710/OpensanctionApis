@@ -13,23 +13,28 @@ class SearchService:
         self.trusted_domains = Config.TRUSTED_DOMAINS
     
     def intelligent_search(self, entity_name: str, opensanctions_data: Optional[Dict] = None) -> Dict:
-        """Enhanced search that uses OpenSanctions data to create more accurate search queries"""
+        """Enhanced search that uses OpenSanctions data to create more accurate search queries - optimized"""
         try:
-            # Generate intelligent search queries based on OpenSanctions data
-            search_queries = self._generate_intelligent_queries(entity_name, opensanctions_data)
+            # For fast response, use only 1-2 targeted searches instead of 5
+            if opensanctions_data and opensanctions_data.get('success') and opensanctions_data.get('data'):
+                # If we have OpenSanctions data, use it for targeted search
+                search_query = self._generate_smart_query(entity_name, opensanctions_data)
+            else:
+                # Simple fallback query
+                search_query = f'"{entity_name}" sanctions compliance regulatory'
             
-            # Perform searches and rank results
-            all_results = []
-            for query_data in search_queries:
-                if self.serper_api_key:
-                    result = self._search_with_serper(query_data['query'], entity_name)
-                    if result.get('success'):
-                        result['query_context'] = query_data['context']
-                        result['relevance_score'] = query_data['relevance_score']
-                        all_results.append(result)
+            # Perform single optimized search
+            if self.serper_api_key:
+                result = self._search_with_serper(search_query, entity_name)
+                if result.get('success'):
+                    return self._merge_and_rank_results([result], entity_name, opensanctions_data)
             
-            # Merge and rank all results
-            return self._merge_and_rank_results(all_results, entity_name, opensanctions_data)
+            return {
+                'success': False,
+                'error': 'No search provider configured',
+                'suggestions': [],
+                'ranked_results': []
+            }
                 
         except Exception as e:
             logger.error(f"Intelligent search error for {entity_name}: {e}")
@@ -40,97 +45,44 @@ class SearchService:
                 'ranked_results': []
             }
     
-    def _generate_intelligent_queries(self, entity_name: str, opensanctions_data: Optional[Dict] = None) -> List[Dict]:
-        """Generate multiple intelligent search queries based on OpenSanctions findings"""
-        queries = []
+    def _generate_smart_query(self, entity_name: str, opensanctions_data: Dict) -> str:
+        """Generate a single smart query based on OpenSanctions findings"""
+        base_query = f'"{entity_name}"'
         
-        # Base query with high relevance
-        queries.append({
-            'query': f'"{entity_name}" sanctions compliance regulatory',
-            'context': 'General sanctions and compliance check',
-            'relevance_score': 0.8
-        })
-        
-        # If we have OpenSanctions data, create targeted queries
         if opensanctions_data and opensanctions_data.get('success') and opensanctions_data.get('data'):
             os_data = opensanctions_data['data']
             results = os_data.get('results', [])
             
             if results:
-                # Extract information from OpenSanctions results
-                for result in results[:3]:  # Top 3 results
-                    countries = result.get('countries', [])
-                    datasets = result.get('datasets', [])
-                    topics = result.get('topics', [])
-                    
-                    # Country-specific search
-                    if countries:
-                        for country in countries[:2]:  # Top 2 countries
-                            queries.append({
-                                'query': f'"{entity_name}" {country} sanctions "law enforcement" OR investigation',
-                                'context': f'Country-specific search for {country}',
-                                'relevance_score': 0.9
-                            })
-                    
-                    # Dataset-specific search
-                    if datasets:
-                        for dataset in datasets[:2]:  # Top 2 datasets
-                            if 'wanted' in dataset.lower():
-                                queries.append({
-                                    'query': f'"{entity_name}" wanted fugitive "law enforcement"',
-                                    'context': 'Wanted persons database search',
-                                    'relevance_score': 0.95
-                                })
-                            elif 'sanction' in dataset.lower():
-                                queries.append({
-                                    'query': f'"{entity_name}" international sanctions OFAC EU',
-                                    'context': 'International sanctions search',
-                                    'relevance_score': 0.95
-                                })
-                    
-                    # Topic-specific search
-                    if topics:
-                        for topic in topics[:2]:  # Top 2 topics
-                            queries.append({
-                                'query': f'"{entity_name}" {topic} "compliance risk"',
-                                'context': f'Topic-specific search for {topic}',
-                                'relevance_score': 0.85
-                            })
+                result = results[0]  # Use first result
+                countries = result.get('countries', [])
+                datasets = result.get('datasets', [])
+                
+                # Add most relevant context based on actual findings
+                if 'wanted' in str(datasets).lower():
+                    return f'{base_query} wanted fugitive "law enforcement" criminal'
+                elif 'sanctions' in str(datasets).lower():
+                    return f'{base_query} sanctions "financial crime" compliance investigation'
+                elif countries:
+                    return f'{base_query} {countries[0]} sanctions "regulatory action" investigation'
+                else:
+                    return f'{base_query} sanctions compliance "regulatory enforcement"'
         
-        # Additional intelligence-based queries
-        name_parts = entity_name.replace(',', '').split()
-        if len(name_parts) >= 2:
-            # Search with name variations
-            queries.append({
-                'query': f'"{" ".join(name_parts)}" OR "{name_parts[-1]}, {" ".join(name_parts[:-1])}" enforcement',
-                'context': 'Name variation search',
-                'relevance_score': 0.75
-            })
-        
-        # Financial crime and AML search
-        queries.append({
-            'query': f'"{entity_name}" "anti money laundering" OR AML OR "financial crime"',
-            'context': 'Financial crime and AML search',
-            'relevance_score': 0.8
-        })
-        
-        return queries[:5]  # Limit to top 5 queries
+        # For entities without OpenSanctions data, use more specific terms
+        return f'{base_query} sanctions "enforcement action" "regulatory investigation" "financial crime"'
     
     def _search_with_serper(self, search_query: str, entity_name: str) -> Dict:
-        """Enhanced Serper search with intelligent domain handling"""
+        """Enhanced Serper search with intelligent domain handling - optimized"""
         try:
-            # First try with trusted domain restrictions
-            domain_query = " OR ".join([f"site:{domain}" for domain in self.trusted_domains])
-            enhanced_query = f"({search_query}) AND ({domain_query})"
-            
             headers = {
                 'X-API-KEY': self.serper_api_key,
                 'Content-Type': 'application/json'
             }
             
+            # Single search with reasonable timeout
             payload = {
-                'q': enhanced_query,
-                'num': 5,
+                'q': search_query,
+                'num': 5,  # Reduced from 10 to 5 for faster response
                 'gl': 'us',
                 'hl': 'en',
                 'type': 'search'
@@ -140,60 +92,34 @@ class SearchService:
                 self.serper_api_url,
                 headers=headers,
                 json=payload,
-                timeout=30
+                timeout=8  # Reduced timeout from 30 to 8 seconds
             )
             
             response.raise_for_status()
             data = response.json()
             
-            # Check if we got results from trusted domains
             organic_results = data.get('organic', [])
             
             if organic_results:
-                logger.info(f"Enhanced Serper API call successful with trusted domains for: {entity_name}")
+                logger.info(f"Serper API call successful for: {entity_name}")
                 return {
                     'success': True,
                     'data': data,
-                    'search_query': enhanced_query,
+                    'search_query': search_query,
                     'provider': 'serper',
-                    'search_type': 'trusted_domains'
+                    'search_type': 'optimized'
                 }
             else:
-                # No results from trusted domains, try broader search
-                logger.info(f"No results from trusted domains for {entity_name}, trying broader search")
-                
-                # Fallback to search without domain restrictions but with compliance-focused terms
-                fallback_query = f'"{entity_name}" (sanctions OR compliance OR "law enforcement" OR wanted OR investigation OR regulatory)'
-                
-                fallback_payload = {
-                    'q': fallback_query,
-                    'num': 10,  # Get more results for broader search
-                    'gl': 'us',
-                    'hl': 'en',
-                    'type': 'search'
-                }
-                
-                fallback_response = requests.post(
-                    self.serper_api_url,
-                    headers=headers,
-                    json=fallback_payload,
-                    timeout=30
-                )
-                
-                fallback_response.raise_for_status()
-                fallback_data = fallback_response.json()
-                
-                logger.info(f"Fallback Serper API call successful for: {entity_name}")
+                logger.info(f"No results from Serper for {entity_name}")
                 return {
-                    'success': True,
-                    'data': fallback_data,
-                    'search_query': fallback_query,
-                    'provider': 'serper',
-                    'search_type': 'fallback_broader'
+                    'success': False,
+                    'error': 'No search results found',
+                    'data': None,
+                    'search_query': search_query
                 }
             
         except requests.exceptions.RequestException as e:
-            logger.error(f"Enhanced Serper API error for {entity_name}: {e}")
+            logger.error(f"Serper API error for {entity_name}: {e}")
             return {
                 'success': False,
                 'error': str(e),
@@ -225,27 +151,29 @@ class SearchService:
                             organic, entity_name, opensanctions_data, result.get('relevance_score', 0.5)
                         )
                         
-                        enhanced_result = {
-                            'title': organic.get('title', ''),
-                            'link': url,
-                            'snippet': organic.get('snippet', ''),
-                            'relevance_score': relevance,
-                            'query_context': result.get('query_context', 'General search'),
-                            'domain': self._extract_domain(url),
-                            'is_trusted_source': self._is_trusted_domain(url)
-                        }
-                        merged_results.append(enhanced_result)
+                        # ONLY include results with meaningful relevance (threshold: 0.4)
+                        if relevance >= 0.4:
+                            enhanced_result = {
+                                'title': organic.get('title', ''),
+                                'link': url,
+                                'snippet': organic.get('snippet', ''),
+                                'relevance_score': relevance,
+                                'query_context': result.get('query_context', 'General search'),
+                                'domain': self._extract_domain(url),
+                                'is_trusted_source': self._is_trusted_domain(url)
+                            }
+                            merged_results.append(enhanced_result)
             
             # Sort by relevance score
             merged_results.sort(key=lambda x: x['relevance_score'], reverse=True)
             
-            # Generate search suggestions
+            # Generate search suggestions only if we have meaningful results
             suggestions = self._generate_search_suggestions(entity_name, opensanctions_data, merged_results)
             
             return {
                 'success': True,
                 'total_results': len(merged_results),
-                'ranked_results': merged_results[:10],  # Top 10 results
+                'ranked_results': merged_results[:5],  # Top 5 most relevant results
                 'suggestions': suggestions,
                 'search_strategy': 'intelligent_opensanctions_enhanced'
             }
@@ -260,68 +188,116 @@ class SearchService:
             }
     
     def _calculate_result_relevance(self, result: Dict, entity_name: str, opensanctions_data: Optional[Dict], base_score: float) -> float:
-        """Calculate relevance score for a search result"""
+        """Calculate relevance score for a search result with better filtering"""
         score = base_score
         
         title = result.get('title', '').lower()
         snippet = result.get('snippet', '').lower()
         content = f"{title} {snippet}"
+        url = result.get('link', '').lower()
         
-        # Name matching - give higher score for exact name matches
+        # FILTER OUT completely irrelevant results
+        irrelevant_patterns = [
+            'privacy policy', 'terms of service', 'cookie policy', 'help center',
+            'support documentation', 'user guide', 'tutorial', 'how to',
+            'general compliance', 'product features', 'pricing', 'download',
+            'sign up', 'log in', 'create account', 'software documentation'
+        ]
+        
+        # Check if result is generic/irrelevant
+        for pattern in irrelevant_patterns:
+            if pattern in content and entity_name.lower() not in content:
+                score *= 0.1  # Heavy penalty for irrelevant content
+                break
+        
+        # Name matching - REQUIRE entity name presence for high relevance
         entity_name_lower = entity_name.lower()
+        entity_name_parts = entity_name_lower.replace(',', '').replace('.', '').split()
+        
+        # Check for exact entity name match
         if entity_name_lower in content:
-            score += 0.2
+            score += 0.3
+        else:
+            # Check for individual name parts
+            matching_parts = 0
+            for part in entity_name_parts:
+                if len(part) > 2 and part in content:
+                    matching_parts += 1
+                    score += 0.1
+            
+            # If no name parts match, heavily penalize
+            if matching_parts == 0:
+                score *= 0.2
         
-        name_parts = entity_name.lower().replace(',', '').split()
-        matching_parts = 0
-        for part in name_parts:
-            if len(part) > 2 and part in content:
-                matching_parts += 1
-                score += 0.1
+        # CRITICAL: High-value enforcement/sanctions keywords
+        critical_keywords = [
+            'sanctions', 'sanctioned', 'wanted', 'fugitive', 'arrested',
+            'indicted', 'charged', 'investigation', 'enforcement',
+            'violated', 'penalty', 'fine', 'prosecution', 'criminal',
+            'fraud', 'money laundering', 'terror', 'drug trafficking'
+        ]
         
-        # Bonus for matching all name parts
-        if matching_parts == len(name_parts) and len(name_parts) > 1:
-            score += 0.15
+        critical_match = False
+        for keyword in critical_keywords:
+            if keyword in content:
+                score += 0.25
+                critical_match = True
         
-        # High-value keywords for compliance and law enforcement
-        high_value_keywords = ['sanctions', 'wanted', 'fugitive', 'enforcement', 'investigation', 'compliance', 'regulatory', 'aml', 'laundering']
-        for keyword in high_value_keywords:
+        # Compliance and regulatory keywords (medium value)
+        compliance_keywords = [
+            'compliance', 'regulatory', 'violation', 'breach',
+            'aml', 'kyc', 'cfpb', 'sec', 'finra', 'ofac', 'treasury',
+            'financial crime', 'suspicious activity', 'due diligence'
+        ]
+        
+        for keyword in compliance_keywords:
             if keyword in content:
                 score += 0.15
         
-        # OpenSanctions context matching
+        # OpenSanctions context matching - make it more specific
         if opensanctions_data and opensanctions_data.get('success'):
             os_results = opensanctions_data.get('data', {}).get('results', [])
             for os_result in os_results:
                 countries = [c.lower() for c in os_result.get('countries', [])]
                 datasets = [d.lower() for d in os_result.get('datasets', [])]
-                topics = [t.lower() for t in os_result.get('topics', [])]
                 
-                # Country matching
+                # Country matching with context
                 for country in countries:
-                    if country in content:
-                        score += 0.2
+                    if country in content and any(keyword in content for keyword in critical_keywords + compliance_keywords):
+                        score += 0.3
                 
-                # Dataset matching
+                # Dataset-specific matching
                 for dataset in datasets:
-                    if any(keyword in dataset for keyword in ['wanted', 'sanction']):
-                        if any(keyword in content for keyword in ['wanted', 'sanction']):
-                            score += 0.25
-                
-                # Topic matching
-                for topic in topics:
-                    if topic in content:
-                        score += 0.15
+                    if 'wanted' in dataset and any(word in content for word in ['wanted', 'fugitive', 'arrest']):
+                        score += 0.4
+                    elif 'sanction' in dataset and any(word in content for word in ['sanction', 'penalty', 'enforcement']):
+                        score += 0.4
         
-        # Trusted domain bonus (but don't penalize non-trusted domains)
-        if self._is_trusted_domain(result.get('link', '')):
-            score += 0.1
+        # Trusted domain bonus
+        trusted_domains = [
+            'treasury.gov', 'sec.gov', 'fbi.gov', 'justice.gov', 'interpol.int',
+            'europa.eu', 'un.org', 'ofac.treasury.gov', 'fincen.gov',
+            'reuters.com', 'bloomberg.com', 'wsj.com', 'ft.com',
+            'bbc.com', 'cnn.com', 'apnews.com'
+        ]
         
-        # Penalty for very short snippets (likely not relevant)
+        domain_bonus = False
+        for domain in trusted_domains:
+            if domain in url:
+                score += 0.2
+                domain_bonus = True
+                break
+        
+        # Penalty for very short snippets or generic content
         if len(snippet) < 50:
-            score *= 0.8
+            score *= 0.7
         
-        return min(score, 1.0)  # Cap at 1.0
+        # MINIMUM RELEVANCE THRESHOLD
+        # If no critical keywords AND no entity name match AND not trusted domain, mark as irrelevant
+        if not critical_match and entity_name_lower not in content and not domain_bonus:
+            score *= 0.1
+        
+        return min(max(score, 0.0), 1.0)  # Cap between 0.0 and 1.0
     
     def _generate_search_suggestions(self, entity_name: str, opensanctions_data: Optional[Dict], results: List[Dict]) -> List[Dict]:
         """Generate intelligent search suggestions based on findings"""

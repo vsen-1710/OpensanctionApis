@@ -1,5 +1,7 @@
 import time
 import logging
+import asyncio
+import concurrent.futures
 from typing import Dict, List, Optional
 from .cache_service import CacheService
 from .opensanctions_service import OpenSanctionsService
@@ -12,32 +14,79 @@ class EntityService:
         self.cache_service = CacheService()
         self.opensanctions_service = OpenSanctionsService()
         self.search_service = SearchService()
+        # Thread pool for parallel processing
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
     
     def process_entity(self, entity_name: str) -> Dict:
-        """Process a single entity through the enhanced workflow"""
+        """Process a single entity through the enhanced workflow with optimizations"""
         logger.info(f"Processing entity: {entity_name}")
+        start_time = time.time()
         
-        # Step 1: Check Redis cache (temporarily disabled)
-        # cached_result = self.cache_service.get(entity_name)
-        # if cached_result:
-        #     logger.info(f"Returning cached result for: {entity_name}")
-        #     return cached_result
+        # Step 1: Check Redis cache (re-enabled for performance)
+        cached_result = self.cache_service.get(entity_name)
+        if cached_result:
+            cache_time = time.time() - start_time
+            logger.info(f"Returning cached result for: {entity_name} in {cache_time:.2f}s")
+            return cached_result
         
-        # Step 2: Call OpenSanctions API first
-        opensanctions_result = self.opensanctions_service.search_entity(entity_name)
+        # Step 2: Run OpenSanctions and Web Search in parallel
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                # Submit both tasks to run in parallel
+                opensanctions_future = executor.submit(self.opensanctions_service.search_entity, entity_name)
+                search_future = executor.submit(self._fast_web_search, entity_name)
+                
+                # Wait for both to complete with timeout
+                opensanctions_result = opensanctions_future.result(timeout=15)
+                web_search_result = search_future.result(timeout=15)
+                
+        except concurrent.futures.TimeoutError:
+            logger.warning(f"Timeout processing entity: {entity_name}")
+            # Return partial results if timeout
+            opensanctions_result = {"success": False, "error": "Timeout", "data": None}
+            web_search_result = {"success": False, "error": "Timeout", "ranked_results": []}
+        except Exception as e:
+            logger.error(f"Error in parallel processing for {entity_name}: {e}")
+            # Fallback to sequential processing
+            opensanctions_result = self.opensanctions_service.search_entity(entity_name)
+            web_search_result = self.search_service.intelligent_search(entity_name, opensanctions_result)
         
-        # Step 3: Use OpenSanctions data to enhance web search
-        web_search_result = self.search_service.intelligent_search(entity_name, opensanctions_result)
-        
-        # Step 4: Create comprehensive result
+        # Step 3: Create comprehensive result
         comprehensive_result = self._create_comprehensive_result(
             entity_name, opensanctions_result, web_search_result
         )
         
-        # Step 5: Cache the result (temporarily disabled)
-        # self.cache_service.set(entity_name, comprehensive_result)
+        # Step 4: Cache the result
+        self.cache_service.set(entity_name, comprehensive_result)
+        
+        processing_time = time.time() - start_time
+        logger.info(f"Processed entity {entity_name} in {processing_time:.2f}s")
         
         return comprehensive_result
+    
+    def _fast_web_search(self, entity_name: str) -> Dict:
+        """Optimized web search with reduced queries and better targeting"""
+        try:
+            # Use only the most effective search queries (reduced from 5 to 2)
+            if self.search_service.serper_api_key:
+                # More specific search query to avoid generic results
+                primary_query = f'"{entity_name}" (sanctions OR wanted OR investigation OR enforcement OR "financial crime" OR "regulatory action")'
+                result = self.search_service._search_with_serper(primary_query, entity_name)
+                if result.get('success'):
+                    return self.search_service._merge_and_rank_results([result], entity_name, None)
+            
+            return {
+                'success': False,
+                'error': 'No search provider configured',
+                'ranked_results': []
+            }
+        except Exception as e:
+            logger.error(f"Fast web search error for {entity_name}: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'ranked_results': []
+            }
     
     def process_multiple_entities(self, entity_names: List[str]) -> List[Dict]:
         """Process multiple entities efficiently"""
@@ -96,6 +145,7 @@ class EntityService:
     
     def _create_comprehensive_result(self, entity_name: str, opensanctions_result: Dict, web_search_result: Dict) -> Dict:
         """Create simplified unified result combining OpenSanctions and web search data"""
+        start_time = time.time()
         
         combined_results = []
         total_found = 0
@@ -112,8 +162,8 @@ class EntityService:
                 opensanctions_found = True
                 sources_found.append(f"OpenSanctions ({opensanctions_total} records)")
                 
-                # Add OpenSanctions results to combined list
-                for result in results[:3]:  # Limit to top 3 results
+                # Add OpenSanctions results to combined list (limit to 2 for faster processing)
+                for result in results[:2]:  # Reduced from 3 to 2
                     properties = result.get('properties', {})
                     
                     # Extract key information
@@ -152,19 +202,16 @@ class EntityService:
                         'relevance': 'high'
                     })
                     
-                    # Add related web search results for this OpenSanctions entity
+                    # Add related web search results for this OpenSanctions entity (limit to 1)
                     if web_search_result.get('success'):
                         ranked_results = web_search_result.get('ranked_results', [])
                         if ranked_results:
-                            # Add top 2 web search results related to this entity
-                            for web_result in ranked_results[:2]:
+                            # Add top 1 web search result (reduced from 2)
+                            for web_result in ranked_results[:1]:
                                 combined_results.append({
                                     'source': 'Web Search',
                                     'type': 'web_reference',
-                                    'name': web_result.get('title', ''),
-                                    'birth_date': 'Not available',
-                                    'gender': 'Not available', 
-                                    'country': 'Not available',
+                                    'title': web_result.get('title', ''),
                                     'description': web_result.get('snippet', ''),
                                     'source_link': web_result.get('link', ''),
                                     'source_name': web_result.get('domain', ''),
@@ -181,15 +228,12 @@ class EntityService:
             if ranked_results and web_search_total > 0:
                 sources_found.append(f"Web search ({web_search_total} results)")
                 
-                # Add web search results
-                for result in ranked_results[:5]:  # Limit to top 5 when no OpenSanctions data
+                # Add web search results (limit to 3 when no OpenSanctions data)
+                for result in ranked_results[:3]:  # Reduced from 5 to 3
                     combined_results.append({
                         'source': 'Web Search',
                         'type': 'web_reference',
-                        'name': result.get('title', ''),
-                        'birth_date': 'Not available',
-                        'gender': 'Not available',
-                        'country': 'Not available', 
+                        'title': result.get('title', ''),
                         'description': result.get('snippet', ''),
                         'source_link': result.get('link', ''),
                         'source_name': result.get('domain', ''),
@@ -198,15 +242,20 @@ class EntityService:
         
         total_found = len(combined_results)
         
-        # Create simplified response
-        return {
-            'found': opensanctions_found or len(combined_results) > 0,
-            'summary': self._generate_simple_message(entity_name, sources_found, opensanctions_error),
-            'total_results': total_found,
+        # Create final result structure
+        final_result = {
+            'found': total_found > 0,
             'results': combined_results,
-            'timestamp': int(time.time()),
-            'status': 'completed'
+            'total_results': total_found,
+            'summary': self._generate_simple_message(entity_name, sources_found, opensanctions_error),
+            'status': 'completed',
+            'timestamp': int(time.time())
         }
+        
+        processing_time = time.time() - start_time
+        logger.info(f"Result compilation for {entity_name} completed in {processing_time:.3f}s")
+        
+        return final_result
     
     def _generate_simple_message(self, entity_name: str, sources_found: List[str], opensanctions_error: str = None) -> str:
         """Generate simple result message"""

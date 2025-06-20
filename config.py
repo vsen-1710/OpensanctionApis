@@ -66,9 +66,14 @@ class Config:
         'wolfsberg-principles.com'
     ]
     
-    # Performance Configuration
-    REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', 30))
-    SEARCH_RESULTS_LIMIT = int(os.getenv('SEARCH_RESULTS_LIMIT', 10))
+    # Performance Configuration - Optimized for faster response times
+    REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', 10))  # Reduced from 30 to 10
+    SEARCH_RESULTS_LIMIT = int(os.getenv('SEARCH_RESULTS_LIMIT', 5))  # Reduced from 10 to 5
+    
+    # New optimization settings
+    OPENSANCTIONS_TIMEOUT = int(os.getenv('OPENSANCTIONS_TIMEOUT', 10))  # 10 second timeout
+    WEB_SEARCH_TIMEOUT = int(os.getenv('WEB_SEARCH_TIMEOUT', 8))  # 8 second timeout
+    PARALLEL_PROCESSING_TIMEOUT = int(os.getenv('PARALLEL_PROCESSING_TIMEOUT', 15))  # 15 second timeout for parallel tasks
     
     @classmethod
     def validate_config(cls):
