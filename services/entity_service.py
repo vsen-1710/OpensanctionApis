@@ -95,10 +95,19 @@ class EntityService:
         for entity_name in entity_names:
             if not isinstance(entity_name, str) or not entity_name.strip():
                 results.append({
-                    'entity_name': entity_name,
-                    'error': 'Invalid entity name',
-                    'timestamp': int(time.time()),
-                    'processing_status': 'failed'
+                    'api_version': '2.0.0',
+                    'entity': {
+                        'name': entity_name
+                    },
+                    'result': {
+                        'found': False,
+                        'results': [],
+                        'total_results': 0,
+                        'summary': 'Invalid entity name',
+                        'status': 'failed',
+                        'timestamp': int(time.time())
+                    },
+                    'success': False
                 })
                 continue
             
@@ -108,10 +117,19 @@ class EntityService:
             except Exception as e:
                 logger.error(f"Error processing entity {entity_name}: {e}")
                 results.append({
-                    'entity_name': entity_name,
-                    'error': f'Processing error: {str(e)}',
-                    'timestamp': int(time.time()),
-                    'processing_status': 'failed'
+                    'api_version': '2.0.0',
+                    'entity': {
+                        'name': entity_name
+                    },
+                    'result': {
+                        'found': False,
+                        'results': [],
+                        'total_results': 0,
+                        'summary': f'Processing error: {str(e)}',
+                        'status': 'failed',
+                        'timestamp': int(time.time())
+                    },
+                    'success': False
                 })
         
         return results
@@ -137,10 +155,19 @@ class EntityService:
         except Exception as e:
             logger.error(f"Error processing entity ID {entity_id}: {e}")
             return {
-                'entity_id': entity_id,
-                'error': f'Processing error: {str(e)}',
-                'timestamp': int(time.time()),
-                'processing_status': 'failed'
+                'api_version': '2.0.0',
+                'entity': {
+                    'name': entity_id
+                },
+                'result': {
+                    'found': False,
+                    'results': [],
+                    'total_results': 0,
+                    'summary': f'Processing error: {str(e)}',
+                    'status': 'failed',
+                    'timestamp': int(time.time())
+                },
+                'success': False
             }
     
     def _create_comprehensive_result(self, entity_name: str, opensanctions_result: Dict, web_search_result: Dict) -> Dict:
@@ -150,6 +177,7 @@ class EntityService:
         combined_results = []
         total_found = 0
         sources_found = []
+        opensanctions_count = 0
         
         # Process OpenSanctions results
         opensanctions_found = False
@@ -158,65 +186,112 @@ class EntityService:
         if opensanctions_result.get('success') and opensanctions_result.get('data'):
             results = opensanctions_result['data'].get('results', [])
             opensanctions_total = opensanctions_result.get('total_results', 0)
+            # Ensure opensanctions_total is a number
+            if isinstance(opensanctions_total, (int, float)):
+                opensanctions_total = int(opensanctions_total)
+            else:
+                opensanctions_total = 0
+                
             if results and opensanctions_total > 0:
                 opensanctions_found = True
+                opensanctions_count = opensanctions_total
                 sources_found.append(f"OpenSanctions ({opensanctions_total} records)")
                 
                 # Add OpenSanctions results to combined list (limit to 2 for faster processing)
-                for result in results[:2]:  # Reduced from 3 to 2
-                    properties = result.get('properties', {})
-                    
-                    # Extract key information
-                    name = properties.get('name', [])
-                    name = name[0] if name else entity_name
-                    
-                    gender = properties.get('gender', [])
-                    gender = gender[0] if gender else 'Not available'
-                    
-                    birth_date = properties.get('birthDate', [])
-                    birth_date = birth_date[0] if birth_date else 'Not available'
-                    
-                    country = properties.get('country', [])
-                    country = country[0] if country else 'Not available'
-                    
-                    source_url = properties.get('sourceUrl', [])
-                    source_url = source_url[0] if source_url else ''
-                    
-                    notes = properties.get('notes', [])
-                    description = notes[0] if notes else 'No description available'
-                    
-                    datasets = result.get('datasets', [])
-                    source_name = datasets[0] if datasets else 'OpenSanctions'
-                    
-                    # Add OpenSanctions result
-                    combined_results.append({
-                        'source': 'OpenSanctions',
-                        'type': 'sanctions_record',
-                        'name': name,
-                        'birth_date': birth_date,
-                        'gender': gender,
-                        'country': country,
-                        'description': description,
-                        'source_link': source_url,
-                        'source_name': source_name,
-                        'relevance': 'high'
-                    })
-                    
-                    # Add related web search results for this OpenSanctions entity (limit to 1)
-                    if web_search_result.get('success'):
-                        ranked_results = web_search_result.get('ranked_results', [])
-                        if ranked_results:
-                            # Add top 1 web search result (reduced from 2)
-                            for web_result in ranked_results[:1]:
-                                combined_results.append({
-                                    'source': 'Web Search',
-                                    'type': 'web_reference',
-                                    'title': web_result.get('title', ''),
+                for i, result in enumerate(results[:2]):  # Reduced from 3 to 2
+                    # Handle different OpenSanctions response structures
+                    if isinstance(result, dict):
+                        # Try to extract properties from different possible locations
+                        properties = result.get('properties', {})
+                        if not properties:
+                            # If no properties, try direct fields
+                            properties = result
+                        
+                        # Extract key information with fallbacks
+                        name = properties.get('name', [])
+                        if isinstance(name, list):
+                            name = name[0] if name else entity_name
+                        else:
+                            name = name or entity_name
+                        
+                        gender = properties.get('gender', [])
+                        if isinstance(gender, list):
+                            gender = gender[0] if gender else 'Not available'
+                        else:
+                            gender = gender or 'Not available'
+                        
+                        birth_date = properties.get('birthDate', [])
+                        if isinstance(birth_date, list):
+                            birth_date = birth_date[0] if birth_date else 'Not available'
+                        else:
+                            birth_date = birth_date or 'Not available'
+                        
+                        country = properties.get('country', [])
+                        if isinstance(country, list):
+                            country = country[0] if country else 'Not available'
+                        else:
+                            country = country or 'Not available'
+                        
+                        source_url = properties.get('sourceUrl', [])
+                        if isinstance(source_url, list):
+                            source_url = source_url[0] if source_url else ''
+                        else:
+                            source_url = source_url or ''
+                        
+                        notes = properties.get('notes', [])
+                        if isinstance(notes, list):
+                            description = notes[0] if notes else 'No description available'
+                        else:
+                            description = notes or 'No description available'
+                        
+                        datasets = result.get('datasets', [])
+                        source_name = datasets[0] if datasets else 'OpenSanctions'
+                        
+                        # Create result object with opensanctions and web_reference sections
+                        result_obj = {
+                            'opensanctions': {
+                                'birth_date': birth_date,
+                                'country': country,
+                                'description': description,
+                                'gender': gender,
+                                'name': name,
+                                'relevance': 'high',
+                                'source': 'OpenSanctions',
+                                'source_link': source_url,
+                                'source_name': source_name,
+                                'type': 'sanctions_record'
+                            }
+                        }
+                        
+                        # Add related web search results for this OpenSanctions entity
+                        if web_search_result.get('success'):
+                            ranked_results = web_search_result.get('ranked_results', [])
+                            if ranked_results and i < len(ranked_results):
+                                # Add corresponding web search result for this OpenSanctions result
+                                web_result = ranked_results[i]
+                                result_obj['web_reference'] = {
                                     'description': web_result.get('snippet', ''),
+                                    'relevance': 'high' if isinstance(web_result.get('relevance_score'), (int, float)) and web_result.get('relevance_score', 0) > 0.8 else 'medium',
+                                    'source': 'Web Search',
                                     'source_link': web_result.get('link', ''),
-                                    'source_name': web_result.get('domain', ''),
-                                    'relevance': 'high' if web_result.get('relevance_score', 0) > 0.8 else 'medium'
-                                })
+                                    'source_name': web_result.get('source_name', web_result.get('domain', '')),
+                                    'title': web_result.get('title', ''),
+                                    'type': 'web_reference'
+                                }
+                            elif ranked_results:
+                                # If we have web results but not enough for each OpenSanctions result, use the first one
+                                web_result = ranked_results[0]
+                                result_obj['web_reference'] = {
+                                    'description': web_result.get('snippet', ''),
+                                    'relevance': 'high' if isinstance(web_result.get('relevance_score'), (int, float)) and web_result.get('relevance_score', 0) > 0.8 else 'medium',
+                                    'source': 'Web Search',
+                                    'source_link': web_result.get('link', ''),
+                                    'source_name': web_result.get('source_name', web_result.get('domain', '')),
+                                    'title': web_result.get('title', ''),
+                                    'type': 'web_reference'
+                                }
+                        
+                        combined_results.append(result_obj)
                     
         elif not opensanctions_result.get('success'):
             opensanctions_error = opensanctions_result.get('error', 'Unknown OpenSanctions API error')
@@ -225,31 +300,46 @@ class EntityService:
         if not opensanctions_found and web_search_result.get('success'):
             ranked_results = web_search_result.get('ranked_results', [])
             web_search_total = web_search_result.get('total_results', 0)
+            # Ensure web_search_total is a number
+            if isinstance(web_search_total, (int, float)):
+                web_search_total = int(web_search_total)
+            else:
+                web_search_total = 0
+                
             if ranked_results and web_search_total > 0:
                 sources_found.append(f"Web search ({web_search_total} results)")
                 
                 # Add web search results (limit to 3 when no OpenSanctions data)
                 for result in ranked_results[:3]:  # Reduced from 5 to 3
                     combined_results.append({
-                        'source': 'Web Search',
-                        'type': 'web_reference',
-                        'title': result.get('title', ''),
-                        'description': result.get('snippet', ''),
-                        'source_link': result.get('link', ''),
-                        'source_name': result.get('domain', ''),
-                        'relevance': 'high' if result.get('relevance_score', 0) > 0.8 else 'medium'
+                        'web_reference': {
+                            'description': result.get('snippet', ''),
+                            'relevance': 'high' if isinstance(result.get('relevance_score'), (int, float)) and result.get('relevance_score', 0) > 0.8 else 'medium',
+                            'source': 'Web Search',
+                            'source_link': result.get('link', ''),
+                            'source_name': result.get('source_name', result.get('domain', '')),
+                            'title': result.get('title', ''),
+                            'type': 'web_reference'
+                        }
                     })
         
         total_found = len(combined_results)
         
-        # Create final result structure
+        # Create final result structure matching the desired format
         final_result = {
-            'found': total_found > 0,
-            'results': combined_results,
-            'total_results': total_found,
-            'summary': self._generate_simple_message(entity_name, sources_found, opensanctions_error),
-            'status': 'completed',
-            'timestamp': int(time.time())
+            'api_version': '2.0.0',
+            'entity': {
+                'name': entity_name
+            },
+            'result': {
+                'found': total_found > 0,
+                'results': combined_results,
+                'total_results': total_found,
+                'summary': self._generate_simple_message(entity_name, sources_found, opensanctions_error, opensanctions_count),
+                'status': 'completed',
+                'timestamp': int(time.time())
+            },
+            'success': True
         }
         
         processing_time = time.time() - start_time
@@ -257,13 +347,17 @@ class EntityService:
         
         return final_result
     
-    def _generate_simple_message(self, entity_name: str, sources_found: List[str], opensanctions_error: str = None) -> str:
+    def _generate_simple_message(self, entity_name: str, sources_found: List[str], opensanctions_error: str = None, opensanctions_count: int = 0) -> str:
         """Generate simple result message"""
         if opensanctions_error:
             return f"Search completed with API limitations. Found {len(sources_found)} source(s)."
         elif sources_found:
-            sources_text = " and ".join(sources_found)
-            return f"Found in {sources_text}"
+            # If we have OpenSanctions results, prioritize that in the summary
+            if opensanctions_count > 0:
+                return f"Found in OpenSanctions ({opensanctions_count} records)"
+            else:
+                sources_text = " and ".join(sources_found)
+                return f"Found in {sources_text}"
         else:
             return "No records found in available databases"
     
