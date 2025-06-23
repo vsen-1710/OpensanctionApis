@@ -146,6 +146,11 @@ class SearchService:
                     if url and url not in seen_urls:
                         seen_urls.add(url)
                         
+                        # Check if URL is from trusted domain - ONLY include trusted sources
+                        domain = self._extract_domain(url)
+                        if not self._is_trusted_domain(url):
+                            continue
+                        
                         # Calculate relevance score for this specific result
                         relevance = self._calculate_result_relevance(
                             organic, entity_name, opensanctions_data, result.get('relevance_score', 0.5)
@@ -153,14 +158,17 @@ class SearchService:
                         
                         # ONLY include results with meaningful relevance (threshold: 0.4)
                         if relevance >= 0.4:
+                            source_name = self._get_source_name(domain)
+                            
                             enhanced_result = {
                                 'title': organic.get('title', ''),
                                 'link': url,
                                 'snippet': organic.get('snippet', ''),
                                 'relevance_score': relevance,
                                 'query_context': result.get('query_context', 'General search'),
-                                'domain': self._extract_domain(url),
-                                'is_trusted_source': self._is_trusted_domain(url)
+                                'domain': domain,
+                                'source_name': source_name,
+                                'is_trusted_source': True  # All results are now from trusted sources
                             }
                             merged_results.append(enhanced_result)
             
@@ -273,28 +281,13 @@ class SearchService:
                     elif 'sanction' in dataset and any(word in content for word in ['sanction', 'penalty', 'enforcement']):
                         score += 0.4
         
-        # Trusted domain bonus
-        trusted_domains = [
-            'treasury.gov', 'sec.gov', 'fbi.gov', 'justice.gov', 'interpol.int',
-            'europa.eu', 'un.org', 'ofac.treasury.gov', 'fincen.gov',
-            'reuters.com', 'bloomberg.com', 'wsj.com', 'ft.com',
-            'bbc.com', 'cnn.com', 'apnews.com'
-        ]
-        
-        domain_bonus = False
-        for domain in trusted_domains:
-            if domain in url:
-                score += 0.2
-                domain_bonus = True
-                break
-        
         # Penalty for very short snippets or generic content
         if len(snippet) < 50:
             score *= 0.7
         
         # MINIMUM RELEVANCE THRESHOLD
-        # If no critical keywords AND no entity name match AND not trusted domain, mark as irrelevant
-        if not critical_match and entity_name_lower not in content and not domain_bonus:
+        # If no critical keywords AND no entity name match, mark as irrelevant
+        if not critical_match and entity_name_lower not in content:
             score *= 0.1
         
         return min(max(score, 0.0), 1.0)  # Cap between 0.0 and 1.0
@@ -311,6 +304,11 @@ class SearchService:
         # Generate contextual suggestions
         if opensanctions_data and opensanctions_data.get('success'):
             total_results = opensanctions_data.get('total_results', 0)
+            # Ensure total_results is a number
+            if isinstance(total_results, (int, float)):
+                total_results = int(total_results)
+            else:
+                total_results = 0
             
             if total_results > 0:
                 suggestions.append({
@@ -372,6 +370,54 @@ class SearchService:
         """Check if URL is from a trusted domain"""
         domain = self._extract_domain(url)
         return any(trusted in domain for trusted in self.trusted_domains)
+    
+    def _get_source_name(self, domain: str) -> str:
+        """Get human-readable source name from domain"""
+        source_mapping = {
+            # News Sources
+            'bbc.com': 'BBC News',
+            'reuters.com': 'Reuters',
+            'apnews.com': 'Associated Press',
+            'cnn.com': 'CNN',
+            'theguardian.com': 'The Guardian',
+            'wsj.com': 'The Wall Street Journal',
+            'ft.com': 'Financial Times',
+            'bloomberg.com': 'Bloomberg',
+            'hindustantimes.com': 'Hindustan Times',
+            'forbes.com': 'Forbes',
+            
+            # Government Sources
+            'treasury.gov': 'U.S. Department of Treasury',
+            'fincen.gov': 'Financial Crimes Enforcement Network',
+            'sec.gov': 'Securities and Exchange Commission',
+            'fbi.gov': 'Federal Bureau of Investigation',
+            'justice.gov': 'U.S. Department of Justice',
+            'state.gov': 'U.S. Department of State',
+            'europa.eu': 'European Union',
+            
+            # Compliance and Legal
+            'opensanctions.org': 'OpenSanctions',
+            'sanctionslist.eu': 'EU Sanctions List',
+            'ofac.treasury.gov': 'OFAC Sanctions List',
+            'un.org': 'United Nations',
+            
+            # Financial Industry
+            'swift.com': 'SWIFT',
+            'fatf-gafi.org': 'Financial Action Task Force',
+            'wolfsberg-principles.com': 'Wolfsberg Group'
+        }
+        
+        # Check for exact domain match first
+        if domain in source_mapping:
+            return source_mapping[domain]
+        
+        # Check for partial domain matches
+        for trusted_domain, source_name in source_mapping.items():
+            if trusted_domain in domain:
+                return source_name
+        
+        # Fallback to domain name
+        return domain
     
     def search_entity(self, entity_name: str):
         """Legacy method for backward compatibility"""
