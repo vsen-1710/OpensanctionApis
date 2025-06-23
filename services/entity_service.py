@@ -69,8 +69,8 @@ class EntityService:
         try:
             # Use only the most effective search queries (reduced from 5 to 2)
             if self.search_service.serper_api_key:
-                # More specific search query to avoid generic results
-                primary_query = f'"{entity_name}" (sanctions OR wanted OR investigation OR enforcement OR "financial crime" OR "regulatory action")'
+                # For initial search without OpenSanctions context, use general query first
+                primary_query = f'"{entity_name}"'
                 result = self.search_service._search_with_serper(primary_query, entity_name)
                 if result.get('success'):
                     return self.search_service._merge_and_rank_results([result], entity_name, None)
@@ -323,6 +323,11 @@ class EntityService:
                         }
                     })
         
+        # Handle case where no trusted domain results are found
+        elif not opensanctions_found and not web_search_result.get('success'):
+            # No results from trusted sources - return "not found"
+            pass  # combined_results will remain empty
+        
         total_found = len(combined_results)
         
         # Create final result structure matching the desired format
@@ -359,7 +364,7 @@ class EntityService:
                 sources_text = " and ".join(sources_found)
                 return f"Found in {sources_text}"
         else:
-            return "No records found in available databases"
+            return "No records found in trusted sources"
     
     def get_health_status(self) -> Dict:
         """Get health status of all services"""

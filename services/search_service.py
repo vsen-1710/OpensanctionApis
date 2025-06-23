@@ -20,8 +20,8 @@ class SearchService:
                 # If we have OpenSanctions data, use it for targeted search
                 search_query = self._generate_smart_query(entity_name, opensanctions_data)
             else:
-                # Simple fallback query
-                search_query = f'"{entity_name}" sanctions compliance regulatory'
+                # Simple general query for entities not in OpenSanctions
+                search_query = f'"{entity_name}"'
             
             # Perform single optimized search
             if self.serper_api_key:
@@ -128,7 +128,7 @@ class SearchService:
             }
     
     def _merge_and_rank_results(self, all_results: List[Dict], entity_name: str, opensanctions_data: Optional[Dict]) -> Dict:
-        """Merge and rank all search results by relevance"""
+        """Merge and rank all search results by relevance - TRUSTED DOMAINS ONLY"""
         try:
             merged_results = []
             seen_urls = set()
@@ -146,18 +146,21 @@ class SearchService:
                     if url and url not in seen_urls:
                         seen_urls.add(url)
                         
-                        # Check if URL is from trusted domain - ONLY include trusted sources
+                        # Extract domain for source identification
                         domain = self._extract_domain(url)
-                        if not self._is_trusted_domain(url):
-                            continue
+                        is_trusted = self._is_trusted_domain(url)
+                        
+                        # ONLY INCLUDE TRUSTED DOMAINS - Simple fix as requested
+                        if not is_trusted:
+                            continue  # Skip all non-trusted domains
                         
                         # Calculate relevance score for this specific result
                         relevance = self._calculate_result_relevance(
                             organic, entity_name, opensanctions_data, result.get('relevance_score', 0.5)
                         )
                         
-                        # ONLY include results with meaningful relevance (threshold: 0.4)
-                        if relevance >= 0.4:
+                        # For trusted domains, use a lower relevance threshold
+                        if relevance >= 0.1:  # Lower threshold since we trust these domains
                             source_name = self._get_source_name(domain)
                             
                             enhanced_result = {
@@ -168,7 +171,7 @@ class SearchService:
                                 'query_context': result.get('query_context', 'General search'),
                                 'domain': domain,
                                 'source_name': source_name,
-                                'is_trusted_source': True  # All results are now from trusted sources
+                                'is_trusted_source': True  # All results are now trusted
                             }
                             merged_results.append(enhanced_result)
             
@@ -179,11 +182,11 @@ class SearchService:
             suggestions = self._generate_search_suggestions(entity_name, opensanctions_data, merged_results)
             
             return {
-                'success': True,
+                'success': len(merged_results) > 0,  # Only success if we found trusted domain results
                 'total_results': len(merged_results),
                 'ranked_results': merged_results[:5],  # Top 5 most relevant results
                 'suggestions': suggestions,
-                'search_strategy': 'intelligent_opensanctions_enhanced'
+                'search_strategy': 'trusted_domains_only'
             }
             
         except Exception as e:
@@ -367,9 +370,22 @@ class SearchService:
             return url
     
     def _is_trusted_domain(self, url: str) -> bool:
-        """Check if URL is from a trusted domain"""
-        domain = self._extract_domain(url)
-        return any(trusted in domain for trusted in self.trusted_domains)
+        """Check if URL is from a trusted domain - improved precision"""
+        domain = self._extract_domain(url).lower()
+        
+        # Remove www. prefix if present
+        if domain.startswith('www.'):
+            domain = domain[4:]
+        
+        # Check for exact domain match or subdomain match
+        for trusted in self.trusted_domains:
+            trusted_lower = trusted.lower()
+            if domain == trusted_lower or domain.endswith('.' + trusted_lower):
+                logger.info(f"Trusted domain found: {domain} matches {trusted_lower}")
+                return True
+        
+        logger.info(f"Non-trusted domain filtered out: {domain}")
+        return False
     
     def _get_source_name(self, domain: str) -> str:
         """Get human-readable source name from domain"""

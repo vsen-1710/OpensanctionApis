@@ -82,15 +82,9 @@ def check_entities():
         
         # Format response based on input type
         if len(entities) == 1 and ('name' in data or 'entity' in data):
-            # Single entity response format
+            # Single entity response format - return the result directly since it's already a complete structure
             result = results[0] if results else None
-            entity_field = data.get('name', data.get('entity', entities[0]))
-            return jsonify({
-                'success': True,
-                'entity': {'name': entity_field},
-                'result': result,
-                'api_version': '2.0.0'
-            })
+            return jsonify(result)
         
         # Multiple entities response format
         return jsonify({
@@ -161,6 +155,61 @@ def health_check():
         logger.error(f"Error in health check: {e}")
         return jsonify({
             'status': 'unhealthy',
+            'error': str(e),
+            'api_version': '2.0.0'
+        }), 500
+
+@api_bp.route('/cache/status', methods=['GET'])
+def cache_status():
+    """Get cache status and statistics"""
+    try:
+        cache_info = entity_service.cache_service.get_cache_info()
+        return jsonify({
+            'success': True,
+            'cache_info': cache_info,
+            'api_version': '2.0.0'
+        })
+    except Exception as e:
+        logger.error(f"Error getting cache status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'api_version': '2.0.0'
+        }), 500
+
+@api_bp.route('/cache/clear', methods=['POST'])
+def clear_cache():
+    """Clear all cache data"""
+    try:
+        result = entity_service.clear_cache()
+        return jsonify({
+            'success': result,
+            'message': 'Cache cleared successfully' if result else 'Failed to clear cache',
+            'api_version': '2.0.0'
+        })
+    except Exception as e:
+        logger.error(f"Error clearing cache: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'api_version': '2.0.0'
+        }), 500
+
+@api_bp.route('/cache/clear/<entity_name>', methods=['POST'])
+def clear_entity_cache(entity_name: str):
+    """Clear cache for a specific entity"""
+    try:
+        result = entity_service.cache_service.clear_entity_cache(entity_name)
+        return jsonify({
+            'success': result,
+            'entity_name': entity_name,
+            'message': f'Cache cleared for {entity_name}' if result else f'No cache found for {entity_name}',
+            'api_version': '2.0.0'
+        })
+    except Exception as e:
+        logger.error(f"Error clearing cache for {entity_name}: {e}")
+        return jsonify({
+            'success': False,
             'error': str(e),
             'api_version': '2.0.0'
         }), 500
