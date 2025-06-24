@@ -328,9 +328,8 @@ Web search is restricted to these trusted domains:
    pip install gunicorn
    gunicorn -w 4 -b 0.0.0.0:5000 app:app
    ```
-3. Set up reverse proxy (nginx recommended)
-4. Enable HTTPS
-5. Configure monitoring and logging
+3. Enable HTTPS
+4. Configure monitoring and logging
 
 ## 🐛 Troubleshooting
 
