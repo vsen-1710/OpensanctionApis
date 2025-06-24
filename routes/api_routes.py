@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 import logging
 from typing import Dict, List, Any, Optional
 from services.entity_service import EntityService
+from services import require_api_key, AuthService
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,7 @@ api_bp = Blueprint('api', __name__)
 entity_service = EntityService()
 
 @api_bp.route('/check', methods=['POST'])
+@require_api_key
 def check_entities():
     """Enhanced entity checking with intelligent web search"""
     try:
@@ -103,6 +105,7 @@ def check_entities():
         }), 500
 
 @api_bp.route('/check/<entity_id>', methods=['GET'])
+@require_api_key
 def check_entity_by_id(entity_id: str):
     """Check entity by OpenSanctions entity ID"""
     try:
@@ -129,7 +132,7 @@ def check_entity_by_id(entity_id: str):
 
 @api_bp.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
+    """Health check endpoint - No authentication required"""
     try:
         health_status = entity_service.get_health_status()
         
@@ -138,7 +141,8 @@ def health_check():
             'services': {
                 'cache': 'connected' if health_status['cache_connected'] else 'disconnected',
                 'opensanctions': 'configured' if health_status['opensanctions_configured'] else 'not_configured',
-                'search': 'configured' if health_status['search_configured'] else 'not_configured'
+                'search': 'configured' if health_status['search_configured'] else 'not_configured',
+                'authentication': 'enabled' if require_api_key else 'disabled'
             },
             'search_providers': health_status['search_providers'],
             'api_version': '2.0.0'
@@ -160,6 +164,7 @@ def health_check():
         }), 500
 
 @api_bp.route('/cache/status', methods=['GET'])
+@require_api_key
 def cache_status():
     """Get cache status and statistics"""
     try:
@@ -178,6 +183,7 @@ def cache_status():
         }), 500
 
 @api_bp.route('/cache/clear', methods=['POST'])
+@require_api_key
 def clear_cache():
     """Clear all cache data"""
     try:
@@ -196,6 +202,7 @@ def clear_cache():
         }), 500
 
 @api_bp.route('/cache/clear/<entity_name>', methods=['POST'])
+@require_api_key
 def clear_entity_cache(entity_name: str):
     """Clear cache for a specific entity"""
     try:
@@ -215,6 +222,7 @@ def clear_entity_cache(entity_name: str):
         }), 500
 
 @api_bp.route('/check/entity-id', methods=['POST'])
+@require_api_key
 def check_entity_by_id_json():
     """Check entity by ID from JSON input"""
     try:
@@ -299,6 +307,26 @@ def check_entity_by_id_json():
         
     except Exception as e:
         logger.error(f"Error in /check/entity-id endpoint: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error',
+            'api_version': '2.0.0'
+        }), 500
+
+@api_bp.route('/auth/validate', methods=['GET'])
+@require_api_key
+def validate_api_key():
+    """Validate API key endpoint"""
+    try:
+        api_key = AuthService.get_api_key_from_request()
+        return jsonify({
+            'success': True,
+            'message': 'API key is valid',
+            'api_key_prefix': f"{api_key[:10]}..." if api_key else "N/A",
+            'api_version': '2.0.0'
+        })
+    except Exception as e:
+        logger.error(f"Error validating API key: {e}")
         return jsonify({
             'success': False,
             'error': 'Internal server error',

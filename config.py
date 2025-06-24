@@ -10,6 +10,11 @@ class Config:
     FLASK_ENV = os.getenv('FLASK_ENV', 'production')
     FLASK_PORT = int(os.getenv('FLASK_PORT', 5000))
     
+    # API Authentication Configuration
+    API_KEYS = os.getenv('API_KEYS', 'b35f8058-f352-406a-ae2b-d7ca2c475853,risknet_api_key_123456,demo_key_789012').split(',')
+    API_KEY_HEADER = os.getenv('API_KEY_HEADER', 'X-API-Key')
+    REQUIRE_API_KEY = os.getenv('REQUIRE_API_KEY', 'true').lower() == 'true'
+    
     # OpenSanctions API
     OPENSANCTIONS_API_KEY = os.getenv('OPENSANCTIONS_API_KEY')
     
@@ -88,5 +93,8 @@ class Config:
         
         if cls.FLASK_ENV == 'production' and cls.ADMIN_TOKEN == 'admin-token-change-in-production':
             errors.append("ADMIN_TOKEN must be changed in production")
+        
+        if cls.REQUIRE_API_KEY and not cls.API_KEYS:
+            errors.append("API_KEYS must be configured when REQUIRE_API_KEY is enabled")
         
         return errors 
