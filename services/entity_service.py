@@ -104,8 +104,7 @@ class EntityService:
                         'results': [],
                         'total_results': 0,
                         'summary': 'Invalid entity name',
-                        'status': 'failed',
-                        'timestamp': int(time.time())
+                        'status': 'failed'
                     },
                     'success': False
                 })
@@ -126,8 +125,7 @@ class EntityService:
                         'results': [],
                         'total_results': 0,
                         'summary': f'Processing error: {str(e)}',
-                        'status': 'failed',
-                        'timestamp': int(time.time())
+                        'status': 'failed'
                     },
                     'success': False
                 })
@@ -164,8 +162,7 @@ class EntityService:
                     'results': [],
                     'total_results': 0,
                     'summary': f'Processing error: {str(e)}',
-                    'status': 'failed',
-                    'timestamp': int(time.time())
+                    'status': 'failed'
                 },
                 'success': False
             }
@@ -341,8 +338,7 @@ class EntityService:
                 'results': combined_results,
                 'total_results': total_found,
                 'summary': self._generate_simple_message(entity_name, sources_found, opensanctions_error, opensanctions_count),
-                'status': 'completed',
-                'timestamp': int(time.time())
+                'status': 'completed'
             },
             'success': True
         }
